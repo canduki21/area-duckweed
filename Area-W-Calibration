@@ -1,0 +1,72 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+# === Load the image ===
+image = cv2.imread("file")  # Replace with your file name
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+# === Step 1: Use OpenCV's mouse callback to get ruler clicks ===
+points = []
+
+# Mouse click event to capture points
+def click_event(event, x, y, flags, param):
+    if event == cv2.EVENT_LBUTTONDOWN:
+        points.append((x, y))
+        print(f"Clicked at: ({x}, {y})")
+        cv2.circle(image, (x, y), 5, (0, 0, 255), -1)  # Mark the point
+        cv2.imshow("Click on Ruler", image)
+
+# Display the image and wait for two clicks
+cv2.imshow("Click on Ruler", image)
+cv2.setMouseCallback("Click on Ruler", click_event)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# Check if we got exactly two clicks
+if len(points) != 2:
+    print("You need to click exactly two points on the ruler.")
+    exit()
+
+# === Step 2: Calculate the pixel distance between clicked points ===
+(x1, y1), (x2, y2) = points
+pixel_distance = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+print(f"Measured pixel distance: {pixel_distance:.2f} pixels")
+
+# === Step 3: Input known distance between those points (real-world distance) ===
+real_distance_cm = float(input("Enter the real-world distance between the two points (in cm): "))
+pixels_per_cm = pixel_distance / real_distance_cm
+pixel_area_cm2 = (1 / pixels_per_cm) ** 2
+
+# === Step 4: Segment the plant (green color detection) ===
+hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+lower_green = np.array([25, 40, 40])
+upper_green = np.array([85, 255, 255])
+mask = cv2.inRange(hsv, lower_green, upper_green)
+
+# Optional: Clean up the mask with morphology
+kernel = np.ones((5, 5), np.uint8)
+mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+# === Step 5: Calculate the plant area ===
+plant_pixels = cv2.countNonZero(mask)
+plant_area_cm2 = plant_pixels * pixel_area_cm2
+
+print(f"\nPlant area: {plant_pixels} pixels")
+print(f"Estimated plant area: {plant_area_cm2:.2f} cm²")
+
+# === Step 6: Show results using matplotlib ===
+plt.figure(figsize=(10, 5))
+
+plt.subplot(1, 2, 1)
+plt.title("Original Image")
+plt.imshow(image_rgb)
+plt.axis("off")
+
+plt.subplot(1, 2, 2)
+plt.title("Detected Plant Area")
+plt.imshow(mask, cmap="gray")
+plt.axis("off")
+
+plt.tight_layout()
+plt.show()
