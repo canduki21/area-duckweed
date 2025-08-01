@@ -1,0 +1,150 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+
+def get_scale(image, label="Image"):
+    print(f"\n[Step] Set scale for {label}")
+    points = []
+
+    def click_event(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN and len(points) < 2:
+            points.append((x, y))
+            print(f"Clicked at: ({x}, {y})")
+            cv2.circle(image, (x, y), 5, (0, 0, 255), -1)
+            cv2.imshow(f"Set Scale - {label}", image)
+
+    temp_img = image.copy()
+    cv2.imshow(f"Set Scale - {label}", temp_img)
+    cv2.setMouseCallback(f"Set Scale - {label}", click_event)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    if len(points) != 2:
+        raise ValueError("You must click exactly 2 points.")
+
+    (x1, y1), (x2, y2),(x3, y3), (x4, y4) = points
+    pixel_distance = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    real_distance_cm = float(input(f"Enter real-world distance (in cm) for {label}: "))
+    pixel_area_cm2 = (real_distance_cm / pixel_distance) ** 2
+    return pixel_area_cm2
+
+def get_rois(image, num_rois=9, label="Image"):
+    print(f"\n[Step] Select {num_rois} ROIs in {label}")
+    rois = []
+    for i in range(num_rois):
+        roi = cv2.selectROI(f"{label} - Select ROI {i+1}", image, showCrosshair=True, fromCenter=False)
+        cv2.destroyWindow(f"{label} - Select ROI {i+1}")
+        if roi[2] == 0 or roi[3] == 0:
+            print(f"⚠️ Skipped ROI {i+1} (invalid selection). Try again.")
+            return get_rois(image, num_rois, label)
+        rois.append(roi)
+    return rois
+
+def calculate_areas(image, rois, pixel_area_cm2):
+    lower_green = np.array([25, 40, 40])
+    upper_green = np.array([85, 255, 255])
+    kernel = np.ones((5, 5), np.uint8)
+
+    areas = []
+    visuals = []
+
+    for i, roi in enumerate(rois):
+        x, y, w, h = roi
+        roi_img = image[y:y+h, x:x+w]
+        if roi_img.size == 0:
+            print(f"⚠️ Empty ROI {i+1}. Skipping.")
+            areas.append(0.0)
+            visuals.append((np.zeros((100, 100, 3), dtype=np.uint8), np.zeros((100, 100), dtype=np.uint8)))
+            continue
+
+        roi_hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(roi_hsv, lower_green, upper_green)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        plant_pixels = cv2.countNonZero(mask)
+        area_cm2 = plant_pixels * pixel_area_cm2
+        areas.append(area_cm2)
+        visuals.append((roi_img, mask))
+
+    return areas, visuals
+
+def compare_areas(areas1, visuals1, areas2, visuals2, save_dir="comparisons"):
+    os.makedirs(save_dir, exist_ok=True)
+    print("\n=== Comparison Results ===")
+
+    for i in range(len(areas1)):
+        area1 = areas1[i]
+        area2 = areas2[i]
+        area3 = areas3[i]
+        area4 = areas4[i]
+        diff = area4 - area3 - area2 - area1
+
+        img1, _ = visuals1[i]
+        img2, _ = visuals2[i]
+        img3, _ = visuals3[i]
+        img4, _ = visuals4[i]
+        
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        axes[0].imshow(cv2.cvtColor(img1, cv2.COLOR_BGR2RGB))
+        axes[0].set_title(f"Test 1 - ROI {i+1}\nArea: {area1:.2f} cm²")
+        axes[0].axis("off")
+
+        axes[1].imshow(cv2.cvtColor(img2, cv2.COLOR_BGR2RGB))
+        axes[1].set_title(f"Test 2 - ROI {i+1}\nArea: {area2:.2f} cm²\nΔ: {diff:+.2f} cm²")
+        axes[1].axis("off")
+        
+        axes[2].imshow(cv2.cvtColor(img3, cv2.COLOR_BGR2RGB))
+        axes[2].set_title(f"Test 3 - ROI {i+1}\nArea: {area3:.2f} cm²\nΔ: {diff:+.2f} cm²")
+        axes[2].axis("off")
+        
+        axes[3].imshow(cv2.cvtColor(img4, cv2.COLOR_BGR2RGB))
+        axes[3].set_title(f"Test 4 - ROI {i+1}\nArea: {area4:.2f} cm²\nΔ: {diff:+.2f} cm²")
+        axes[3].axis("off")
+
+        
+        plt.tight_layout()
+        filepath = os.path.join(save_dir, f"roi_{i+1}_comparison.png")
+        plt.savefig(filepath)
+        plt.show()
+
+        print(f"ROI {i+1}: Test1 = {area1:.2f} cm², Test2 = {area2:.2f} cm², Test3 = {area3:.2f} cm², Test4 = {area4:.2f} cm², Δ = {diff:+.2f} cm²")
+
+# === MAIN WORKFLOW ===
+
+# Load your two test images (adjust filenames as needed)
+image1 = cv2.imread("total-area/comp-1/-SucroseMSH0.png")
+image2 = cv2.imread("total-area/comp-1/-SucroseMSH24.png")
+image3 = cv2.imread("total-area/comp-1/-SucroseMSh48.png")
+imag4 = cv2.imread("total-area/comp-1/-SucroseMSh72.png")
+
+# Confirm they're loaded
+if image1 is None or image2 is None:
+    raise FileNotFoundError("One or both images could not be loaded. Check the filenames.")
+
+# === Process Image 1 ===
+print("\n=== Processing Image 1 ===")
+pixel_area_cm2_1 = get_scale(image1.copy(), "Image 1")
+rois1 = get_rois(image1.copy(), label="Image 1")
+areas1, visuals1 = calculate_areas(image1, rois1, pixel_area_cm2_1)
+
+# === Process Image 2 ===
+print("\n=== Processing Image 2 ===")
+pixel_area_cm2_2 = get_scale(image2.copy(), "Image 2")
+rois2 = get_rois(image2.copy(), label="Image 2")
+areas2, visuals2 = calculate_areas(image2, rois2, pixel_area_cm2_2)
+
+# === Process Image 3 ===
+print("\n=== Processing Image 3 ===")
+pixel_area_cm2_3 = get_scale(image3.copy(), "Image 3")
+rois3 = get_rois(image3.copy(), label="Image 3")
+areas3, visuals3 = calculate_areas(image3, rois3, pixel_area_cm2_3)
+
+# === Process Image 3 ===
+print("\n=== Processing Image 4 ===")
+pixel_area_cm2_4 = get_scale(image4.copy(), "Image 4")
+rois4 = get_rois(image4.copy(), label="Image 3")
+areas4, visuals4 = calculate_areas(image4, rois4, pixel_area_cm2_4)
+
+
+# === Compare and Save ===
+compare_areas(areas1, visuals1, areas2, visuals2,areas3, visuals3, areas4, visuals4 )
